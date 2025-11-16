@@ -2,6 +2,11 @@
 
 This project is to showcase building a end to end api for inference tasks based on what I think goes into building a api. A demostration of building a API using commonly used libraries like fastapi and so on.
 
+## Tech Used
+fastapi
+docker
+uv
+
 ## How To Run
 
 ```
