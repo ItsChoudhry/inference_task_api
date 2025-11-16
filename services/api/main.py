@@ -1,6 +1,10 @@
 from contextlib import asynccontextmanager
 
-from .models.task import Task, tasks
+from services.api.models.tast_status import TaskStatus
+from services.api.routers.internal import internal_router
+
+from .models.task import Task
+from .services.store import tasks
 from .routers.protected import protected_router
 from datetime import datetime
 import uuid
@@ -18,7 +22,7 @@ async def lifespan(app: FastAPI):
         model="Placeholder model",
         param={},
         inputs={},
-        status="NotStarted",
+        status=TaskStatus.PROCESSING,
         result_url="",
         error="",
         callback_url="",
@@ -43,6 +47,7 @@ app = FastAPI(
 )
 
 app.include_router(protected_router)
+app.include_router(internal_router)
 
 
 @app.get("/healthz")

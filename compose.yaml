@@ -10,4 +10,18 @@ services:
     environment:
       - API_KEY=DEV-KEY
       - PYTHONUNBUFFERED=1
+      - INTERNAL_KEY=worker-key
     command: uv run uvicorn services.api.main:app --host 0.0.0.0 --port 8000 --reload
+
+  worker:
+    build:
+      context: .
+      dockerfile: services/worker/Dockerfile
+    ports:
+      - "9000:9000"
+    volumes:
+      - ./services/worker:/app/services/worker
+    environment:
+      - API_KEY=DEV-KEY
+      - PYTHONUNBUFFERED=1
+    command: uv run uvicorn services.worker.main:app --host 0.0.0.0 --port 9000 --reload

@@ -1,10 +1,15 @@
 from datetime import datetime, timezone
+import logging
 from typing import Optional, Union
 import uuid
+
+from services.api.models.tast_status import TaskStatus
 from ..auth import require_api_key
-from ..models.task import CreateTask, Task, tasks
-from fastapi import APIRouter, Depends, HTTPException, Header
+from ..models.task import CreateTask, Task
+from ..services.store import idempotency_map, tasks
+from fastapi import APIRouter, Depends, HTTPException, Header, BackgroundTasks
 from fastapi.responses import JSONResponse
+import httpx
 
 rate_limit_map: dict[str, tuple[int, datetime]] = {}
 
@@ -40,12 +45,11 @@ protected_router = APIRouter(
     dependencies=[Depends(require_api_key), Depends(check_rate)], tags=["protected"]
 )
 
-idempotency_map: dict[str, str] = {}
-
 
 @protected_router.post("/v1/tasks")
 def add_task(
     task: CreateTask,
+    background_tasks: BackgroundTasks,
     idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
     x_api_key: Optional[str] = Header(None, alias="X-API-KEY"),
 ):
@@ -65,7 +69,7 @@ def add_task(
         model=task.model,
         param=task.param,
         inputs=task.inputs,
-        status="pending",
+        status=TaskStatus.RECEIVED,
         result_url=None,
         error=None,
         callback_url=task.callback_url,
@@ -78,14 +82,40 @@ def add_task(
     if idem_key:
         idempotency_map[idem_key] = new_task.id
 
+    new_task.update_status(TaskStatus.PENDING)
+    background_tasks.add_task(
+        trigger_worker, new_task.id, new_task.model, new_task.inputs
+    )
+
     response = JSONResponse(status_code=201, content={"task_id": generated_id})
     response.headers["Location"] = f"/v1/tasks/{generated_id}"
     return response
 
 
+def trigger_worker(id: str, model: str, inputs: dict):
+    payload = {
+        "task_id": id,
+        "model": model,
+        "inputs": inputs,
+    }
+    try:
+        httpx.post(
+            "http://worker:9000/process",
+            json=payload,
+            headers={"X-Worker-Key": "worker-key"},
+            timeout=30.0,
+        )
+        logging.info("Triggered worker")
+    except Exception as e:
+        logging.error(f"Trigger worker failed {e}")
+
+
 @protected_router.get("/v1/tasks/{task_id}")
 def get_task(task_id: str, q: Union[str, None] = None):
-    return tasks[task_id]
+    task = tasks[task_id]
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return task
 
 
 @protected_router.get("/v1/models")
